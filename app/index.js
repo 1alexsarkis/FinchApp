@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Activi
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_URL = 'http://192.168.89.158:3000';
-const PLAID_CLIENT_ID = '6a045ae9bc6935000dfe3c63';
 
 export default function App() {
   const [screen, setScreen] = useState('welcome');
@@ -12,25 +11,19 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [dashboard, setDashboard] = useState(null);
 
-  // Login state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // Signup state
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
-  const [signupPhone, setSignupPhone] = useState('');
   const [payFrequency, setPayFrequency] = useState('');
   const [monthlyIncome, setMonthlyIncome] = useState('');
   const [signupError, setSignupError] = useState('');
-  const [plaidPublicToken, setPlaidPublicToken] = useState(null);
   const [plaidConnecting, setPlaidConnecting] = useState(false);
 
-  // Settings state
   const [newPassword, setNewPassword] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
   const [settingsIncome, setSettingsIncome] = useState('');
   const [updateMessage, setUpdateMessage] = useState('');
 
@@ -43,7 +36,7 @@ export default function App() {
       const savedToken = await AsyncStorage.getItem('finch_token');
       if (savedToken) {
         setToken(savedToken);
-        loadDashboard(savedToken);
+        await loadDashboard(savedToken);
       } else {
         setScreen('welcome');
         setLoading(false);
@@ -65,20 +58,24 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (res.ok && !data.error) {
+      if (res.ok && data.user) {
         setUser(data.user);
         setDashboard(data);
-        setPhoneNumber(data.user.phone || '');
         setSettingsIncome(data.user.monthly_income?.toString() || '');
         setScreen('dashboard');
+        setLoginError('');
       } else {
+        console.error('Dashboard error:', data.error);
+        setLoginError(data.error || 'Failed to load dashboard');
         await AsyncStorage.removeItem('finch_token');
         setScreen('welcome');
       }
     } catch (err) {
-      console.error('Load error:', err);
+      console.error('Load error:', err.message);
+      setLoginError('Connection error: ' + err.message);
       setScreen('welcome');
     } finally {
+      setLoginLoading(false);
       setLoading(false);
     }
   };
@@ -96,14 +93,12 @@ export default function App() {
       const res = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
 
-      const text = await res.text();
-      const data = JSON.parse(text);
+      const data = await res.json();
 
       if (!res.ok || !data.token) {
         setLoginError('Invalid credentials');
@@ -113,8 +108,7 @@ export default function App() {
 
       await AsyncStorage.setItem('finch_token', data.token);
       setToken(data.token);
-      setLoginLoading(false);
-      loadDashboard(data.token);
+      await loadDashboard(data.token);
     } catch (err) {
       setLoginError('Connection error');
       setLoginLoading(false);
@@ -122,8 +116,8 @@ export default function App() {
   };
 
   const handleSignupStep1 = () => {
-    if (!signupEmail || !signupPassword || !signupPhone) {
-      setSignupError('All fields required');
+    if (!signupEmail || !signupPassword) {
+      setSignupError('Email and password required');
       return;
     }
     if (signupPassword.length < 6) {
@@ -154,7 +148,6 @@ export default function App() {
 
   const handlePlaidSuccess = async (publicToken) => {
     setPlaidConnecting(true);
-    setPlaidPublicToken(publicToken);
     
     try {
       const res = await fetch(`${API_URL}/api/signup`, {
@@ -163,7 +156,7 @@ export default function App() {
         body: JSON.stringify({
           email: signupEmail,
           password: signupPassword,
-          phone: signupPhone,
+          phone: 'finch-app@finch.local',
           payFrequency: payFrequency,
           monthlyIncome: parseFloat(monthlyIncome),
           public_token: publicToken
@@ -175,21 +168,13 @@ export default function App() {
       if (data.success && data.token) {
         await AsyncStorage.setItem('finch_token', data.token);
         setToken(data.token);
-        setUser({ email: signupEmail });
-        setDashboard({ 
-          balance: 0, 
-          totalSpentThisMonth: 0, 
-          incomeUsedPercent: 0,
-          topCategory: null,
-          recentTransactions: []
-        });
-        setScreen('dashboard');
+        await loadDashboard(data.token);
       } else {
         setSignupError(data.error || 'Signup failed');
+        setPlaidConnecting(false);
       }
     } catch (err) {
       setSignupError('Connection error: ' + err.message);
-    } finally {
       setPlaidConnecting(false);
     }
   };
@@ -199,6 +184,8 @@ export default function App() {
     setToken(null);
     setUser(null);
     setDashboard(null);
+    setLoginEmail('');
+    setLoginPassword('');
     setScreen('welcome');
   };
 
@@ -222,33 +209,6 @@ export default function App() {
       if (res.ok) {
         setUpdateMessage('Password updated!');
         setNewPassword('');
-      } else {
-        setUpdateMessage(data.error || 'Failed to update');
-      }
-    } catch (err) {
-      setUpdateMessage('Error');
-    }
-  };
-
-  const updatePhone = async () => {
-    if (!phoneNumber) {
-      setUpdateMessage('Phone number required');
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/api/update-phone`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ phone: phoneNumber })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        setUpdateMessage('Phone updated!');
       } else {
         setUpdateMessage(data.error || 'Failed to update');
       }
@@ -431,7 +391,7 @@ export default function App() {
 
           <View style={styles.authHeader}>
             <Text style={styles.authTitle}>Create account</Text>
-            <Text style={styles.authSubtitle}>We'll send notifications to your WhatsApp</Text>
+            <Text style={styles.authSubtitle}>Get instant spending insights</Text>
           </View>
 
           <View style={styles.inputWrapper}>
@@ -454,17 +414,6 @@ export default function App() {
               secureTextEntry
               value={signupPassword}
               onChangeText={setSignupPassword}
-            />
-          </View>
-
-          <View style={styles.inputWrapper}>
-            <Text style={styles.inputLabel}>WhatsApp number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="+1 (555) 000-0000"
-              placeholderTextColor="#666"
-              value={signupPhone}
-              onChangeText={setSignupPhone}
             />
           </View>
 
@@ -597,54 +546,52 @@ export default function App() {
     );
   }
 
-// SIGNUP SCREEN 4 - Bank (Plaid Link)
-if (screen === 'signup-bank') {
-  return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.authContent}>
-        <TouchableOpacity
-          style={styles.backButtonSmall}
-          onPress={() => setScreen('signup-income')}
-        >
-          <Text style={styles.backButtonSmallText}>← Back</Text>
-        </TouchableOpacity>
+  // SIGNUP SCREEN 4 - Bank Connection
+  if (screen === 'signup-bank') {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.authContent}>
+          <TouchableOpacity
+            style={styles.backButtonSmall}
+            onPress={() => setScreen('signup-income')}
+          >
+            <Text style={styles.backButtonSmallText}>← Back</Text>
+          </TouchableOpacity>
 
-        <View style={styles.authHeader}>
-          <Text style={styles.authTitle}>Connect your bank</Text>
-          <Text style={styles.authSubtitle}>Plaid handles the connection securely</Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.infoBoxTitle}>🏦 Bank credentials are secure</Text>
-          <Text style={styles.infoBoxText}>Your login goes directly to your bank, never through Finch</Text>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.infoBoxTitle}>🚫 Read-only access</Text>
-          <Text style={styles.infoBoxText}>We can only view transactions, never move money</Text>
-        </View>
-
-        {signupError ? (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{signupError}</Text>
+          <View style={styles.authHeader}>
+            <Text style={styles.authTitle}>Connect your bank</Text>
+            <Text style={styles.authSubtitle}>Secure & read-only access</Text>
           </View>
-        ) : null}
 
-        <TouchableOpacity
-          style={styles.loginButton}
-          onPress={() => {
-            handlePlaidSuccess('public-sandbox-test');
-          }}
-          disabled={plaidConnecting}
-        >            
-          <Text style={styles.loginButtonText}>
-            {plaidConnecting ? 'Connecting...' : 'Connect bank'}
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </View>
-  );
-}
+          <View style={styles.infoBox}>
+            <Text style={styles.infoBoxTitle}>🏦 Bank credentials are secure</Text>
+            <Text style={styles.infoBoxText}>Your login goes directly to your bank, never through Finch</Text>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.infoBoxTitle}>🚫 Read-only access</Text>
+            <Text style={styles.infoBoxText}>We can only view transactions, never move money</Text>
+          </View>
+
+          {signupError ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{signupError}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={() => handlePlaidSuccess('public-sandbox-test')}
+            disabled={plaidConnecting}
+          >            
+            <Text style={styles.loginButtonText}>
+              {plaidConnecting ? 'Connecting...' : 'Connect bank'}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
 
   // DASHBOARD SCREEN
   if (screen === 'dashboard' && dashboard) {
@@ -729,27 +676,38 @@ if (screen === 'signup-bank') {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Recent activity</Text>
             {dashboard.recentTransactions?.length > 0 ? (
-              dashboard.recentTransactions.slice(0, 5).map((tx, i) => (
-                <View key={i} style={styles.transactionItem}>
-                  <View>
-                    <Text style={styles.txMerchant}>{tx.merchant}</Text>
-                    <Text style={styles.txDate}>
-                      {new Date(tx.date).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
+              dashboard.recentTransactions.slice(0, 5).map((tx, i) => {
+                let scoreEmoji = '⚪';
+                if (tx.score >= 80) scoreEmoji = '🟢';
+                else if (tx.score >= 60) scoreEmoji = '🟡';
+                else if (tx.score >= 40) scoreEmoji = '🟠';
+                else if (tx.score) scoreEmoji = '🔴';
+                
+                return (
+                  <View key={i} style={styles.transactionItem}>
+                    <View style={styles.txLeft}>
+                      <Text style={styles.txMerchant}>{tx.merchant}</Text>
+                      <Text style={styles.txDate}>
+                        {new Date(tx.date).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    </View>
+                    <View style={styles.txRight}>
+                      <Text style={styles.txScore}>{scoreEmoji} {tx.score || '—'}</Text>
+                      <Text
+                        style={[
+                          styles.txAmount,
+                          { color: tx.amount > 0 ? '#ff6b6b' : '#00d9ff' },
+                        ]}
+                      >
+                        {tx.amount > 0 ? '-' : '+'}${Math.abs(tx.amount)}
+                      </Text>
+                    </View>
                   </View>
-                  <Text
-                    style={[
-                      styles.txAmount,
-                      { color: tx.amount > 0 ? '#ff6b6b' : '#00d9ff' },
-                    ]}
-                  >
-                    {tx.amount > 0 ? '-' : '+'}${Math.abs(tx.amount)}
-                  </Text>
-                </View>
-              ))
+                );
+              })
             ) : (
               <Text style={styles.noData}>No transactions yet</Text>
             )}
@@ -800,23 +758,6 @@ if (screen === 'signup-bank') {
             </View>
             <TouchableOpacity style={styles.settingButton} onPress={updatePassword}>
               <Text style={styles.settingButtonText}>Update password</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.settingSection}>
-            <Text style={styles.settingSectionTitle}>Notifications</Text>
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputLabel}>WhatsApp number</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="+1 (555) 000-0000"
-                placeholderTextColor="#666"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-              />
-            </View>
-            <TouchableOpacity style={styles.settingButton} onPress={updatePhone}>
-              <Text style={styles.settingButtonText}>Update phone</Text>
             </TouchableOpacity>
           </View>
 
@@ -1302,5 +1243,17 @@ const styles = StyleSheet.create({
     color: '#ff6b6b',
     fontWeight: '700',
     fontSize: 16,
+  },
+  txLeft: {
+    flex: 1,
+  },
+  txRight: {
+    alignItems: 'flex-end',
+  },
+  txScore: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#00d9ff',
+    marginBottom: 4,
   },
 });

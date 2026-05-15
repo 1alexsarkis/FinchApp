@@ -5,20 +5,30 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const API_URL = 'http://192.168.89.158:3000';
 
 export default function App() {
-  const [screen, setScreen] = useState('login');
+  const [screen, setScreen] = useState('welcome');
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [dashboard, setDashboard] = useState(null);
 
+  // Login state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
+  // Signup state
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupPhone, setSignupPhone] = useState('');
+  const [payFrequency, setPayFrequency] = useState('');
+  const [monthlyIncome, setMonthlyIncome] = useState('');
+  const [signupError, setSignupError] = useState('');
+
+  // Settings state
   const [newPassword, setNewPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [monthlyIncome, setMonthlyIncome] = useState('');
+  const [settingsIncome, setSettingsIncome] = useState('');
   const [updateMessage, setUpdateMessage] = useState('');
 
   useEffect(() => {
@@ -32,11 +42,11 @@ export default function App() {
         setToken(savedToken);
         loadDashboard(savedToken);
       } else {
-        setScreen('login');
+        setScreen('welcome');
         setLoading(false);
       }
     } catch (err) {
-      setScreen('login');
+      setScreen('welcome');
       setLoading(false);
     }
   };
@@ -56,15 +66,15 @@ export default function App() {
         setUser(data.user);
         setDashboard(data);
         setPhoneNumber(data.user.phone || '');
-        setMonthlyIncome(data.user.monthly_income?.toString() || '');
+        setSettingsIncome(data.user.monthly_income?.toString() || '');
         setScreen('dashboard');
       } else {
         await AsyncStorage.removeItem('finch_token');
-        setScreen('login');
+        setScreen('welcome');
       }
     } catch (err) {
       console.error('Load error:', err);
-      setScreen('login');
+      setScreen('welcome');
     } finally {
       setLoading(false);
     }
@@ -80,15 +90,13 @@ export default function App() {
     setLoginError('');
 
     try {
-      const body = JSON.stringify({ email: loginEmail, password: loginPassword });
-      
-      const res = await fetch('http://192.168.89.158:3000/api/login', {
+      const res = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: body
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
 
       const text = await res.text();
@@ -110,14 +118,77 @@ export default function App() {
     }
   };
 
+  const handleSignupStep1 = () => {
+    if (!signupEmail || !signupPassword || !signupPhone) {
+      setSignupError('All fields required');
+      return;
+    }
+    if (signupPassword.length < 6) {
+      setSignupError('Password must be at least 6 characters');
+      return;
+    }
+    setSignupError('');
+    setScreen('signup-pay');
+  };
+
+  const handleSignupStep2 = () => {
+    if (!payFrequency) {
+      setSignupError('Select pay frequency');
+      return;
+    }
+    setSignupError('');
+    setScreen('signup-income');
+  };
+
+  const handleSignupStep3 = async () => {
+    if (!monthlyIncome || parseFloat(monthlyIncome) <= 0) {
+      setSignupError('Enter valid income');
+      return;
+    }
+    setSignupError('');
+    
+    try {
+      const res = await fetch(`${API_URL}/api/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: signupEmail,
+          password: signupPassword,
+          phone: signupPhone,
+          payFrequency: payFrequency,
+          monthlyIncome: parseFloat(monthlyIncome),
+          public_token: 'public-sandbox-test'
+        })
+      });
+  
+      const data = await res.json();
+      
+      if (data.success && data.token) {
+        await AsyncStorage.setItem('finch_token', data.token);
+        setToken(data.token);
+        setUser({ email: signupEmail });
+        setDashboard({ 
+          balance: 0, 
+          totalSpentThisMonth: 0, 
+          incomeUsedPercent: 0,
+          topCategory: null,
+          recentTransactions: []
+        });
+        setScreen('dashboard');
+      } else {
+        setSignupError(data.error || 'Signup failed');
+      }
+    } catch (err) {
+      setSignupError('Connection error');
+    }
+  };
+
   const handleLogout = async () => {
     await AsyncStorage.removeItem('finch_token');
     setToken(null);
     setUser(null);
     setDashboard(null);
-    setLoginEmail('');
-    setLoginPassword('');
-    setScreen('login');
+    setScreen('welcome');
   };
 
   const updatePassword = async () => {
@@ -176,7 +247,7 @@ export default function App() {
   };
 
   const updateIncome = async () => {
-    if (!monthlyIncome || parseFloat(monthlyIncome) <= 0) {
+    if (!settingsIncome || parseFloat(settingsIncome) <= 0) {
       setUpdateMessage('Valid income required');
       return;
     }
@@ -188,7 +259,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ monthlyIncome: parseFloat(monthlyIncome) })
+        body: JSON.stringify({ monthlyIncome: parseFloat(settingsIncome) })
       });
 
       const data = await res.json();
@@ -210,61 +281,306 @@ export default function App() {
     );
   }
 
+  // WELCOME SCREEN
+  if (screen === 'welcome') {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.welcomeContent}>
+          <View style={styles.logoContainer}>
+            <Text style={styles.logo}>🐦</Text>
+            <Text style={styles.appName}>Finch</Text>
+            <Text style={styles.tagline}>Know before you forget</Text>
+          </View>
+
+          <View style={styles.featuresContainer}>
+            <View style={styles.featureItem}>
+              <Text style={styles.featureEmoji}>⚡</Text>
+              <View style={styles.featureText}>
+                <Text style={styles.featureTitle}>Instant notifications</Text>
+                <Text style={styles.featureDesc}>Every purchase scored in seconds</Text>
+              </View>
+            </View>
+
+            <View style={styles.featureItem}>
+              <Text style={styles.featureEmoji}>🧠</Text>
+              <View style={styles.featureText}>
+                <Text style={styles.featureTitle}>Personalised to you</Text>
+                <Text style={styles.featureDesc}>Based on your income and balance</Text>
+              </View>
+            </View>
+
+            <View style={styles.featureItem}>
+              <Text style={styles.featureEmoji}>🔒</Text>
+              <View style={styles.featureText}>
+                <Text style={styles.featureTitle}>Read-only access</Text>
+                <Text style={styles.featureDesc}>We can never touch your money</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.buttonGroup}>
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => setScreen('signup-account')}
+            >
+              <Text style={styles.primaryButtonText}>Create account</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => setScreen('login')}
+            >
+              <Text style={styles.secondaryButtonText}>Sign in</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   // LOGIN SCREEN
   if (screen === 'login') {
     return (
       <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.loginContent}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logo}>🐦</Text>
-            <Text style={styles.appName}>Finch</Text>
+        <ScrollView contentContainerStyle={styles.authContent}>
+          <TouchableOpacity
+            style={styles.backButtonSmall}
+            onPress={() => setScreen('welcome')}
+          >
+            <Text style={styles.backButtonSmallText}>← Back</Text>
+          </TouchableOpacity>
+
+          <View style={styles.authHeader}>
+            <Text style={styles.authTitle}>Welcome back</Text>
+            <Text style={styles.authSubtitle}>Sign in to your account</Text>
           </View>
 
-          <View style={styles.formContainer}>
-            <Text style={styles.loginTitle}>Welcome back</Text>
-            <Text style={styles.loginSubtitle}>Sign in to your account</Text>
-
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputLabel}>Email</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="your@email.com"
-                placeholderTextColor="#666"
-                value={loginEmail}
-                onChangeText={setLoginEmail}
-                editable={!loginLoading}
-              />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputLabel}>Password</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                placeholderTextColor="#666"
-                secureTextEntry
-                value={loginPassword}
-                onChangeText={setLoginPassword}
-                editable={!loginLoading}
-              />
-            </View>
-
-            {loginError ? (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{loginError}</Text>
-              </View>
-            ) : null}
-
-            <TouchableOpacity
-              style={[styles.loginButton, loginLoading && styles.buttonLoading]}
-              onPress={handleLogin}
-              disabled={loginLoading}
-            >
-              <Text style={styles.loginButtonText}>
-                {loginLoading ? 'Signing in...' : 'Sign in'}
-              </Text>
-            </TouchableOpacity>
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="your@email.com"
+              placeholderTextColor="#666"
+              value={loginEmail}
+              onChangeText={setLoginEmail}
+              editable={!loginLoading}
+            />
           </View>
+
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>Password</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="••••••••"
+              placeholderTextColor="#666"
+              secureTextEntry
+              value={loginPassword}
+              onChangeText={setLoginPassword}
+              editable={!loginLoading}
+            />
+          </View>
+
+          {loginError ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{loginError}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.loginButton, loginLoading && styles.buttonLoading]}
+            onPress={handleLogin}
+            disabled={loginLoading}
+          >
+            <Text style={styles.loginButtonText}>
+              {loginLoading ? 'Signing in...' : 'Sign in'}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // SIGNUP SCREEN 1 - Account
+  if (screen === 'signup-account') {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.authContent}>
+          <TouchableOpacity
+            style={styles.backButtonSmall}
+            onPress={() => setScreen('welcome')}
+          >
+            <Text style={styles.backButtonSmallText}>← Back</Text>
+          </TouchableOpacity>
+
+          <View style={styles.stepIndicator}>
+            <View style={[styles.stepDot, styles.stepDotActive]} />
+            <View style={styles.stepDot} />
+            <View style={styles.stepDot} />
+          </View>
+
+          <View style={styles.authHeader}>
+            <Text style={styles.authTitle}>Create account</Text>
+            <Text style={styles.authSubtitle}>We'll send notifications to your WhatsApp</Text>
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="your@email.com"
+              placeholderTextColor="#666"
+              value={signupEmail}
+              onChangeText={setSignupEmail}
+            />
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>Password</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="At least 6 characters"
+              placeholderTextColor="#666"
+              secureTextEntry
+              value={signupPassword}
+              onChangeText={setSignupPassword}
+            />
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>WhatsApp number</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="+1 (555) 000-0000"
+              placeholderTextColor="#666"
+              value={signupPhone}
+              onChangeText={setSignupPhone}
+            />
+          </View>
+
+          {signupError ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{signupError}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={handleSignupStep1}
+          >
+            <Text style={styles.loginButtonText}>Continue</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // SIGNUP SCREEN 2 - Pay Frequency
+  if (screen === 'signup-pay') {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.authContent}>
+          <TouchableOpacity
+            style={styles.backButtonSmall}
+            onPress={() => setScreen('signup-account')}
+          >
+            <Text style={styles.backButtonSmallText}>← Back</Text>
+          </TouchableOpacity>
+
+          <View style={styles.stepIndicator}>
+            <View style={[styles.stepDot, styles.stepDotActive]} />
+            <View style={[styles.stepDot, styles.stepDotActive]} />
+            <View style={styles.stepDot} />
+          </View>
+
+          <View style={styles.authHeader}>
+            <Text style={styles.authTitle}>How often do you get paid?</Text>
+            <Text style={styles.authSubtitle}>This helps us understand your finances</Text>
+          </View>
+
+          <View style={styles.optionsContainer}>
+            {['weekly', 'biweekly', 'monthly'].map((freq) => (
+              <TouchableOpacity
+                key={freq}
+                style={[
+                  styles.optionButton,
+                  payFrequency === freq && styles.optionButtonSelected,
+                ]}
+                onPress={() => setPayFrequency(freq)}
+              >
+                <Text style={[
+                  styles.optionButtonText,
+                  payFrequency === freq && styles.optionButtonTextSelected,
+                ]}>
+                  {freq === 'weekly' ? '📅 Weekly' : freq === 'biweekly' ? '📆 Every 2 weeks' : '🗓️ Monthly'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {signupError ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{signupError}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={handleSignupStep2}
+          >
+            <Text style={styles.loginButtonText}>Continue</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // SIGNUP SCREEN 3 - Income
+  if (screen === 'signup-income') {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.authContent}>
+          <TouchableOpacity
+            style={styles.backButtonSmall}
+            onPress={() => setScreen('signup-pay')}
+          >
+            <Text style={styles.backButtonSmallText}>← Back</Text>
+          </TouchableOpacity>
+
+          <View style={styles.stepIndicator}>
+            <View style={[styles.stepDot, styles.stepDotActive]} />
+            <View style={[styles.stepDot, styles.stepDotActive]} />
+            <View style={[styles.stepDot, styles.stepDotActive]} />
+          </View>
+
+          <View style={styles.authHeader}>
+            <Text style={styles.authTitle}>Monthly take-home?</Text>
+            <Text style={styles.authSubtitle}>After tax. Helps us score your purchases.</Text>
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>Monthly income (USD)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 3500"
+              placeholderTextColor="#666"
+              keyboardType="numeric"
+              value={monthlyIncome}
+              onChangeText={setMonthlyIncome}
+            />
+          </View>
+
+          {signupError ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{signupError}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.loginButton}
+            onPress={handleSignupStep3}
+          >
+            <Text style={styles.loginButtonText}>Continue</Text>
+          </TouchableOpacity>
         </ScrollView>
       </View>
     );
@@ -453,8 +769,8 @@ export default function App() {
                 placeholder="e.g. 3500"
                 placeholderTextColor="#666"
                 keyboardType="numeric"
-                value={monthlyIncome}
-                onChangeText={setMonthlyIncome}
+                value={settingsIncome}
+                onChangeText={setSettingsIncome}
               />
             </View>
             <TouchableOpacity style={styles.settingButton} onPress={updateIncome}>
@@ -479,11 +795,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0a0a',
   },
-  loginContent: {
+  welcomeContent: {
     flexGrow: 1,
     justifyContent: 'space-between',
     padding: 24,
-    paddingTop: 60,
+    paddingTop: 40,
+  },
+  authContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 24,
+    paddingTop: 20,
   },
   logoContainer: {
     alignItems: 'center',
@@ -499,19 +821,96 @@ const styles = StyleSheet.create({
     color: '#fff',
     letterSpacing: -1,
   },
-  formContainer: {
+  tagline: {
+    fontSize: 14,
+    color: '#888',
+    marginTop: 8,
+  },
+  featuresContainer: {
+    marginBottom: 40,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  featureEmoji: {
+    fontSize: 28,
+    width: 40,
+  },
+  featureText: {
     flex: 1,
   },
-  loginTitle: {
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  featureDesc: {
+    fontSize: 14,
+    color: '#888',
+  },
+  buttonGroup: {
+    gap: 12,
+  },
+  primaryButton: {
+    backgroundColor: '#00d9ff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#0a0a0a',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  backButtonSmall: {
+    marginBottom: 24,
+  },
+  backButtonSmallText: {
+    fontSize: 16,
+    color: '#00d9ff',
+    fontWeight: '700',
+  },
+  authHeader: {
+    marginBottom: 32,
+  },
+  authTitle: {
     fontSize: 28,
     fontWeight: '700',
     color: '#fff',
     marginBottom: 8,
   },
-  loginSubtitle: {
+  authSubtitle: {
     fontSize: 16,
     color: '#888',
+  },
+  stepIndicator: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 32,
+  },
+  stepDot: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#2a2a2a',
+  },
+  stepDotActive: {
+    backgroundColor: '#00d9ff',
   },
   inputWrapper: {
     marginBottom: 20,
@@ -548,7 +947,7 @@ const styles = StyleSheet.create({
   loginButton: {
     backgroundColor: '#00d9ff',
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 16,
     alignItems: 'center',
     marginTop: 32,
   },
@@ -559,6 +958,31 @@ const styles = StyleSheet.create({
   },
   buttonLoading: {
     opacity: 0.6,
+  },
+  optionsContainer: {
+    marginBottom: 32,
+  },
+  optionButton: {
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  optionButtonSelected: {
+    backgroundColor: '#1a3a3a',
+    borderColor: '#00d9ff',
+  },
+  optionButtonText: {
+    color: '#888',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  optionButtonTextSelected: {
+    color: '#00d9ff',
   },
   dashHeader: {
     flexDirection: 'row',

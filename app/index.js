@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Activi
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_URL = 'http://192.168.89.158:3000';
+const PLAID_CLIENT_ID = '6a045ae9bc6935000dfe3c63';
 
 export default function App() {
   const [screen, setScreen] = useState('welcome');
@@ -24,6 +25,8 @@ export default function App() {
   const [payFrequency, setPayFrequency] = useState('');
   const [monthlyIncome, setMonthlyIncome] = useState('');
   const [signupError, setSignupError] = useState('');
+  const [plaidPublicToken, setPlaidPublicToken] = useState(null);
+  const [plaidConnecting, setPlaidConnecting] = useState(false);
 
   // Settings state
   const [newPassword, setNewPassword] = useState('');
@@ -146,6 +149,12 @@ export default function App() {
       return;
     }
     setSignupError('');
+    setScreen('signup-bank');
+  };
+
+  const handlePlaidSuccess = async (publicToken) => {
+    setPlaidConnecting(true);
+    setPlaidPublicToken(publicToken);
     
     try {
       const res = await fetch(`${API_URL}/api/signup`, {
@@ -157,7 +166,7 @@ export default function App() {
           phone: signupPhone,
           payFrequency: payFrequency,
           monthlyIncome: parseFloat(monthlyIncome),
-          public_token: 'public-sandbox-test'
+          public_token: publicToken
         })
       });
   
@@ -179,7 +188,9 @@ export default function App() {
         setSignupError(data.error || 'Signup failed');
       }
     } catch (err) {
-      setSignupError('Connection error');
+      setSignupError('Connection error: ' + err.message);
+    } finally {
+      setPlaidConnecting(false);
     }
   };
 
@@ -586,6 +597,55 @@ export default function App() {
     );
   }
 
+// SIGNUP SCREEN 4 - Bank (Plaid Link)
+if (screen === 'signup-bank') {
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.authContent}>
+        <TouchableOpacity
+          style={styles.backButtonSmall}
+          onPress={() => setScreen('signup-income')}
+        >
+          <Text style={styles.backButtonSmallText}>← Back</Text>
+        </TouchableOpacity>
+
+        <View style={styles.authHeader}>
+          <Text style={styles.authTitle}>Connect your bank</Text>
+          <Text style={styles.authSubtitle}>Plaid handles the connection securely</Text>
+        </View>
+
+        <View style={styles.infoBox}>
+          <Text style={styles.infoBoxTitle}>🏦 Bank credentials are secure</Text>
+          <Text style={styles.infoBoxText}>Your login goes directly to your bank, never through Finch</Text>
+        </View>
+
+        <View style={styles.infoBox}>
+          <Text style={styles.infoBoxTitle}>🚫 Read-only access</Text>
+          <Text style={styles.infoBoxText}>We can only view transactions, never move money</Text>
+        </View>
+
+        {signupError ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{signupError}</Text>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={styles.loginButton}
+          onPress={() => {
+            handlePlaidSuccess('public-sandbox-test');
+          }}
+          disabled={plaidConnecting}
+        >            
+          <Text style={styles.loginButtonText}>
+            {plaidConnecting ? 'Connecting...' : 'Connect bank'}
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+}
+
   // DASHBOARD SCREEN
   if (screen === 'dashboard' && dashboard) {
     return (
@@ -983,6 +1043,24 @@ const styles = StyleSheet.create({
   },
   optionButtonTextSelected: {
     color: '#00d9ff',
+  },
+  infoBox: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#00d9ff',
+  },
+  infoBoxTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  infoBoxText: {
+    fontSize: 14,
+    color: '#888',
   },
   dashHeader: {
     flexDirection: 'row',
